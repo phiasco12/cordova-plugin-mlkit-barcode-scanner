@@ -22,9 +22,6 @@
         <framework src="AVFoundation.framework"/>
         <framework src="UIKit.framework"/>
         <podspec>
-            <config>
-                <source url="https://cdn.cocoapods.org/"/>
-            </config>
             <pods use-frameworks="true">
                 <pod name="GoogleMLKit/BarcodeScanning"/>
             </pods>
