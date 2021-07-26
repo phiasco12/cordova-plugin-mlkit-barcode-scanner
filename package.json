@@ -32,8 +32,6 @@
   },
   "devDependencies": {
     "@types/cordova": "^0.0.34",
-    "mobisys-cordova-plugin-intent": "^2.0.3",
-    "mobisys-ts-config": "^3.0.0",
     "prettier": "^2.2.0",
     "rollup": "^1.11.3",
     "rollup-plugin-typescript2": "^0.21.0",
