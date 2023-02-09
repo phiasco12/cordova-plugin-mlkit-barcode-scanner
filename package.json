@@ -27,9 +27,6 @@
   },
   "homepage": "https://github.com/MobisysGmbH/cordova-plugin-mlkit-barcode-scanner#readme",
   "types": "./types/main.d.ts",
-  "publishConfig": {
-    "registry": "https://pkgs.dev.azure.com/mobisysgmbh/_packaging/mobisys/npm/registry/"
-  },
   "devDependencies": {
     "@types/cordova": "^0.0.34",
     "prettier": "^2.2.0",
