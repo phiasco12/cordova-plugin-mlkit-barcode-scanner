@@ -1,117 +1,127 @@
 package com.mobisys.cordova.plugins.mlkit.barcode.scanner;
 
-import android.app.Activity;
+import android.Manifest;
+import android.content.Intent;
+import android.os.Bundle;
+import android.util.Log;
+
+import com.google.android.gms.common.api.CommonStatusCodes;
 
 import org.apache.cordova.CallbackContext;
-import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CordovaPlugin;
-import org.apache.cordova.CordovaWebView;
 import org.apache.cordova.PluginResult;
 import org.json.JSONArray;
 import org.json.JSONException;
-import org.json.JSONObject;
 
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
-import com.google.mlkit.vision.barcode.common.Barcode;
-
-/**
- * Cordova plugin entry that starts a Google Code Scanner (GMS) scan.
- * Keeps the original API:
- *   action: "startScan"
- *   success payload: [text, formatInt, valueTypeInt]
- *   error payload:   [message, "", ""]
- */
 public class MLKitBarcodeScanner extends CordovaPlugin {
 
-    private static final String ACTION_START_SCAN = "startScan";
+    private static final String TAG = "MLKitBarcodeScanner";
+    private static final int RC_BARCODE_CAPTURE = 9001;
+    private static final int REQ_CAMERA = 9002;
 
-    private CallbackContext callback;
-    private volatile boolean isScanning = false;
-
-    @Override
-    public void initialize(CordovaInterface cordova, CordovaWebView webView) {
-        super.initialize(cordova, webView);
-    }
+    private CallbackContext callbackCtx;
+    private JSONArray pendingArgs;
+    private boolean scannerOpen = false;
 
     @Override
-    public boolean execute(String action, final JSONArray args, final CallbackContext cb) throws JSONException {
-        if (!ACTION_START_SCAN.equals(action)) return false;
+    public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
+        if (!"startScan".equals(action)) return false;
 
-        final Activity activity = cordova.getActivity();
-        this.callback = cb;
+        this.callbackCtx = callbackContext;
+        this.pendingArgs = (args != null) ? args : new JSONArray();
 
-        if (isScanning) {
-            sendError("SCAN_IN_PROGRESS");
+        if (scannerOpen) { // prevent double-launch
+            sendError("SCANNER_OPEN");
             return true;
         }
-        isScanning = true;
 
-        cordova.getActivity().runOnUiThread(() -> {
-            try {
-                // Build options (auto-zoom on). If you want to restrict formats, map your arg[0] here.
-                GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
-                        .enableAutoZoom()
-                        .build();
+        // Request CAMERA at runtime if needed
+        if (!cordova.hasPermission(Manifest.permission.CAMERA)) {
+            cordova.requestPermission(this, REQ_CAMERA, Manifest.permission.CAMERA);
+            return true;
+        }
 
-                GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(activity, options);
-
-                scanner.startScan()
-                        .addOnSuccessListener(barcode -> {
-                            // Success: return [text, format, valueType]
-                            JSONArray result = new JSONArray();
-                            result.put(barcode.getRawValue() != null ? barcode.getRawValue() : "");
-                            result.put(barcode.getFormat());     // int
-                            result.put(barcode.getValueType());  // int
-
-                            sendOk(result);
-                        })
-                        .addOnCanceledListener(() -> {
-                            // User canceled the scan
-                            sendError("CANCELLED");
-                        })
-                        .addOnFailureListener(e -> {
-                            // Other failure
-                            String msg = (e != null && e.getMessage() != null) ? e.getMessage() : "SCAN_FAILED";
-                            sendError(msg);
-                        });
-
-            } catch (Exception e) {
-                String msg = (e.getMessage() != null) ? e.getMessage() : "INIT_FAILED";
-                sendError(msg);
-            }
-        });
-
+        startScannerOnUi();
         return true;
     }
 
+    private void startScannerOnUi() {
+        cordova.getActivity().runOnUiThread(() -> {
+            try {
+                Intent intent = new Intent(cordova.getActivity(), CaptureActivity.class);
+                int detectionTypes = pendingArgs.optInt(0, 1234);
+                double detectorSize = pendingArgs.optDouble(1, 0.5);
+
+                intent.putExtra("DetectionTypes", detectionTypes);
+                intent.putExtra("DetectorSize", detectorSize);
+
+                scannerOpen = true;
+                cordova.setActivityResultCallback(this);
+                cordova.startActivityForResult(this, intent, RC_BARCODE_CAPTURE);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to start scanner", e);
+                scannerOpen = false;
+                sendError("SCAN_FAILED");
+            }
+        });
+    }
+
     @Override
-    public void onRestoreStateForActivityResult(android.os.Bundle state, CallbackContext callbackContext) {
-        this.callback = callbackContext;
+    public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws JSONException {
+        super.onRequestPermissionResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_CAMERA) {
+            if (cordova.hasPermission(Manifest.permission.CAMERA)) {
+                startScannerOnUi();
+            } else {
+                sendError("CAMERA_PERMISSION_REQUIRED");
+            }
+        }
     }
 
-    // ---- helpers ----
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        try {
+            if (requestCode != RC_BARCODE_CAPTURE) return;
 
-    private void sendOk(JSONArray payload) {
-        isScanning = false;
-        if (callback == null) return;
-        PluginResult pr = new PluginResult(PluginResult.Status.OK, payload);
-        pr.setKeepCallback(false);
-        callback.sendPluginResult(pr);
-        callback = null;
+            if (resultCode == CommonStatusCodes.SUCCESS && data != null) {
+                Integer barcodeFormat = data.getIntExtra(CaptureActivity.BarcodeFormat, 0);
+                Integer barcodeType   = data.getIntExtra(CaptureActivity.BarcodeType, 0);
+                String barcodeValue   = data.getStringExtra(CaptureActivity.BarcodeValue);
+
+                JSONArray result = new JSONArray();
+                result.put(barcodeValue);
+                result.put(barcodeFormat);
+                result.put(barcodeType);
+
+                callbackCtx.sendPluginResult(new PluginResult(PluginResult.Status.OK, result));
+                Log.d(TAG, "Barcode read: " + barcodeValue);
+            } else {
+                String err = (data != null) ? data.getStringExtra("err") : "USER_CANCELLED";
+                sendError(err);
+            }
+        } finally {
+            scannerOpen = false;
+        }
     }
 
-    private void sendError(String message) {
-        isScanning = false;
-        if (callback == null) return;
-        JSONArray err = new JSONArray();
-        err.put(message != null ? message : "ERROR");
-        err.put("");
-        err.put("");
-        PluginResult pr = new PluginResult(PluginResult.Status.ERROR, err);
-        pr.setKeepCallback(false);
-        callback.sendPluginResult(pr);
-        callback = null;
+    @Override
+    public void onRestoreStateForActivityResult(Bundle state, CallbackContext callbackContext) {
+        this.callbackCtx = callbackContext;
+    }
+
+    @Override
+    public void onReset() {
+        scannerOpen = false;
+        super.onReset();
+    }
+
+    private void sendError(String code) {
+        try {
+            JSONArray err = new JSONArray();
+            err.put(code);
+            err.put("");
+            err.put("");
+            callbackCtx.sendPluginResult(new PluginResult(PluginResult.Status.ERROR, err));
+        } catch (Exception ignored) { }
     }
 }
