@@ -6,7 +6,7 @@
 
   <name>cordova-plugin-mlkit-barcode-scanner</name>
 
-  <!-- JS surface stays the same -->
+  <!-- JS surface unchanged -->
   <js-module name="cordova-plugin-ml-kit-barcode-scanner" src="www/BarcodeScanner.plugin.js">
     <clobbers target="cordova.plugins.mlkit.barcodeScanner" />
   </js-module>
@@ -17,7 +17,7 @@
     <engine name="cordova-ios" version=">=4.5.0" />
   </engines>
 
-  <!-- iOS (unchanged) -->
+  <!-- iOS (unchanged from your file) -->
   <platform name="ios">
     <config-file parent="/*" target="config.xml">
       <feature name="cordova-plugin-mlkit-barcode-scanner">
@@ -56,28 +56,28 @@
     <resource-file src="src/ios/en.lproj/Localizable.strings" target="en.lproj/Localizable.strings" />
   </platform>
 
-  <!-- ANDROID: switched to Google Code Scanner (GMS) -->
+  <!-- ANDROID: now using Google Code Scanner (via GMS) -->
   <platform name="android">
-    <!-- Ensure AndroidX bridging for older projects -->
+    <!-- Ensure AndroidX bridging for old projects -->
     <dependency id="cordova-plugin-androidx-adapter" version="^1.1.3" />
 
-    <!-- Expose the plugin to Cordova -->
+    <!-- Cordova feature maps to your MLKitBarcodeScanner class -->
     <config-file parent="/*" target="res/xml/config.xml">
       <feature name="cordova-plugin-mlkit-barcode-scanner">
         <param name="android-package"
-               value="com.mobisys.cordova.plugins.mlkit.barcode.scanner.CodeScannerBarcodeScanner" />
+               value="com.mobisys.cordova.plugins.mlkit.barcode.scanner.MLKitBarcodeScanner" />
       </feature>
     </config-file>
 
-    <!-- No custom activity, no Mobile Vision metadata, and no CAMERA permission required by Code Scanner -->
+    <!-- We don't need Mobile Vision metadata, custom CaptureActivity, CameraX, or support libs -->
 
-    <!-- Java source (you provide this class) -->
-    <source-file src="src/android/src/CodeScannerBarcodeScanner.java"
+    <!-- Your Java file (keep this path & name exactly as on disk) -->
+    <source-file src="src/android/src/MLKitBarcodeScanner.java"
                  target-dir="src/com/mobisys/cordova/plugins/mlkit/barcode/scanner" />
 
-    <!-- Minimal dependencies:
-         - AppCompat for Theme.AppCompat.* if you use it anywhere
-         - Google Code Scanner (loads native code via Google Play Services; no barhopper .so in APK) -->
+    <!-- Minimal runtime deps:
+         - AppCompat (for compatibility themes etc.)
+         - Google Code Scanner: loads native bits from Google Play Services (no barhopper .so in APK) -->
     <framework src="androidx.appcompat:appcompat:1.7.0" />
     <framework src="com.google.android.gms:play-services-code-scanner:16.1.0" />
   </platform>
