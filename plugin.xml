@@ -79,5 +79,8 @@
          com.android.support:*  and constraintlayout
          build-extras.gradle reference
     -->
+            <!-- ZXing (pure Java) -->
+  <framework src="com.journeyapps:zxing-android-embedded:4.3.0" />
+  <framework src="com.google.zxing:core:3.5.3" />
   </platform>
 </plugin>
