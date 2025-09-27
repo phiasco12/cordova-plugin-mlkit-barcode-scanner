@@ -38,7 +38,7 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
                 return;
             }
 
-            // 2. Configure scanner (all formats)
+            // 2. Build scanner options
             GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
                     .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
                     .enableAutoZoom()
