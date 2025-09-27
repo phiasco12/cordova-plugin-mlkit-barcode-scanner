@@ -1,12 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <plugin id="cordova-plugin-mlkit-barcode-scanner"
-        version="2.1.2-gms"
+        version="3.0.0-gms"
         xmlns="http://apache.org/cordova/ns/plugins/1.0"
         xmlns:android="http://schemas.android.com/apk/res/android">
 
   <name>cordova-plugin-mlkit-barcode-scanner</name>
 
-  <!-- JS entry (this must exist in your plugin folder) -->
+  <!-- JavaScript bridge -->
   <js-module name="cordova-plugin-ml-kit-barcode-scanner" src="www/main.js">
     <clobbers target="cordova.plugins.mlkit.barcodeScanner"/>
   </js-module>
@@ -17,9 +17,7 @@
     <engine name="cordova-ios" version=">=4.5.0"/>
   </engines>
 
-  <!-- =========================
-       iOS (leave as-is for you)
-       ========================= -->
+  <!-- iOS -->
   <platform name="ios">
     <config-file parent="/*" target="config.xml">
       <feature name="cordova-plugin-mlkit-barcode-scanner">
@@ -46,11 +44,8 @@
     <source-file src="src/ios/CameraViewController.m"/>
   </platform>
 
-  <!-- =========================
-       ANDROID (GMS Code Scanner)
-       ========================= -->
+  <!-- Android -->
   <platform name="android">
-    <!-- Cordova feature binding -->
     <config-file parent="/*" target="res/xml/config.xml">
       <feature name="cordova-plugin-mlkit-barcode-scanner">
         <param name="android-package"
@@ -58,24 +53,16 @@
       </feature>
     </config-file>
 
-    <!-- Permission (safe even if GMS UI doesn't require it) -->
+    <!-- Camera permission -->
     <config-file parent="/manifest" target="AndroidManifest.xml">
       <uses-permission android:name="android.permission.CAMERA"/>
     </config-file>
 
-    <!-- Your single Java entry (GmsBarcodeScanning implementation) -->
+    <!-- Java file -->
     <source-file src="src/android/src/MLKitBarcodeScanner.java"
                  target-dir="src/com/mobisys/cordova/plugins/mlkit/barcode/scanner"/>
 
-    <!-- Minimal dependency: NO Vision, NO CameraX, NO extra activities -->
+    <!-- Dependencies -->
     <framework src="com.google.android.gms:play-services-code-scanner:16.1.0"/>
-
-    <!-- Do NOT add:
-         - com.google.android.gms:play-services-vision
-         - com.google.mlkit:barcode-scanning
-         - androidx.camera:*
-         - any <activity> declarations
-         - extra resources or build-extras.gradle
-    -->
   </platform>
 </plugin>
