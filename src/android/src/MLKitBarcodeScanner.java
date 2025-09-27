@@ -14,12 +14,9 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
 import org.apache.cordova.CallbackContext;
-import org.apache.cordova.CordovaInterface;
 import org.apache.cordova.CordovaPlugin;
-import org.apache.cordova.CordovaWebView;
 import org.apache.cordova.PluginResult;
 import org.json.JSONArray;
-import org.json.JSONException;
 
 public class MLKitBarcodeScanner extends CordovaPlugin {
 
@@ -27,12 +24,7 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
     private CallbackContext callback;
 
     @Override
-    public void initialize(CordovaInterface cordova, CordovaWebView webView) {
-        super.initialize(cordova, webView);
-    }
-
-    @Override
-    public boolean execute(String action, JSONArray args, CallbackContext cb) throws JSONException {
+    public boolean execute(String action, JSONArray args, CallbackContext cb) {
         if (!"startScan".equals(action)) return false;
 
         this.callback = cb;
@@ -42,11 +34,11 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
             if (ContextCompat.checkSelfPermission(
                     cordova.getContext(), Manifest.permission.CAMERA)
                     != PackageManager.PERMISSION_GRANTED) {
-                sendErr("CAMERA_PERMISSION_REQUIRED", null);
+                sendErr("CAMERA_PERMISSION_REQUIRED");
                 return;
             }
 
-            // 2. Build scanner options
+            // 2. Configure scanner (all formats)
             GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
                     .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
                     .enableAutoZoom()
@@ -64,33 +56,30 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
                     result.put(barcode.getFormat());     // int
                     result.put(barcode.getValueType());  // int
                     PluginResult ok = new PluginResult(PluginResult.Status.OK, result);
-                    ok.setKeepCallback(false);
                     callback.sendPluginResult(ok);
                 } catch (Exception e) {
-                    sendErr("PARSE_SUCCESS", e);
+                    sendErr("PARSE_ERROR");
                 }
             }).addOnFailureListener(e -> {
                 if (e instanceof ApiException) {
                     ApiException api = (ApiException) e;
-                    sendErr("API_EXCEPTION_" + api.getStatusCode(), api);
+                    sendErr("API_EXCEPTION_" + api.getStatusCode());
                 } else {
-                    sendErr("SCAN_FAILED", e);
+                    sendErr("SCAN_FAILED");
                 }
-            }).addOnCanceledListener(() -> sendErr("USER_CANCELLED", null));
+            }).addOnCanceledListener(() -> sendErr("USER_CANCELLED"));
         });
 
         return true;
     }
 
-    private void sendErr(String code, Exception e) {
+    private void sendErr(String code) {
         try {
-            if (e != null) Log.w(TAG, code, e);
             JSONArray err = new JSONArray();
             err.put(code);
-            err.put(""); // format
-            err.put(""); // type
+            err.put("");
+            err.put("");
             PluginResult fail = new PluginResult(PluginResult.Status.ERROR, err);
-            fail.setKeepCallback(false);
             callback.sendPluginResult(fail);
         } catch (Exception ex) {
             Log.e(TAG, "sendErr failed", ex);
