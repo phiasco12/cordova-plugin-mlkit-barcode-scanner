@@ -25,6 +25,7 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
 
     private static final String TAG = "MLKitBarcodeScanner";
     private static final int REQ_CAMERA = 1001;
+
     private CallbackContext callback;
 
     @Override
@@ -38,24 +39,35 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
 
         this.callback = cb;
 
-        // Must run on UI thread for GmsBarcodeScanner
         cordova.getActivity().runOnUiThread(() -> {
-            // 1) Check CAMERA permission (expecting cordova-plugin-android-permissions in your project)
             if (ContextCompat.checkSelfPermission(cordova.getContext(), Manifest.permission.CAMERA)
                     != PackageManager.PERMISSION_GRANTED) {
-                // Let JS request it or do it here if you prefer
-                PluginResult pr = new PluginResult(PluginResult.Status.ERROR, "CAMERA_PERMISSION_REQUIRED");
-                pr.setKeepCallback(false);
-                callback.sendPluginResult(pr);
+                // Request permission instead of failing
+                cordova.requestPermission(this, REQ_CAMERA, Manifest.permission.CAMERA);
                 return;
             }
+            startScanInternal();
+        });
 
-            // 2) Build options (keep API compatible; you used two args before)
-            // arg0: detection types (ignored here; Code Scanner handles all formats well)
-            // arg1: detector size (ignored; Code Scanner manages its own UI/crop)
+        return true;
+    }
+
+    @Override
+    public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws JSONException {
+        if (requestCode == REQ_CAMERA) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                cordova.getActivity().runOnUiThread(this::startScanInternal);
+            } else {
+                sendErr("CAMERA_PERMISSION_DENIED", null);
+            }
+        }
+    }
+
+    private void startScanInternal() {
+        try {
             GmsBarcodeScannerOptions options = new GmsBarcodeScannerOptions.Builder()
                     .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                    .enableAutoZoom() // nice UX boost
+                    .enableAutoZoom()
                     .build();
 
             GmsBarcodeScanner scanner = GmsBarcodeScanning.getClient(cordova.getActivity(), options);
@@ -63,11 +75,10 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
             Task<Barcode> task = scanner.startScan();
             task.addOnSuccessListener(barcode -> {
                 try {
-                    // Keep the same 3-element array shape: [value, format, type]
                     JSONArray result = new JSONArray();
                     result.put(barcode.getRawValue() == null ? "" : barcode.getRawValue());
-                    result.put(barcode.getFormat());   // int
-                    result.put(barcode.getValueType()); // int
+                    result.put(barcode.getFormat());
+                    result.put(barcode.getValueType());
                     PluginResult ok = new PluginResult(PluginResult.Status.OK, result);
                     ok.setKeepCallback(false);
                     callback.sendPluginResult(ok);
@@ -77,15 +88,14 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
             }).addOnFailureListener(e -> {
                 if (e instanceof ApiException) {
                     ApiException api = (ApiException) e;
-                    // Common reasons: Play Services missing/outdated, user canceled, etc.
                     sendErr("API_EXCEPTION_" + api.getStatusCode(), api);
                 } else {
                     sendErr("SCAN_FAILED", e);
                 }
             }).addOnCanceledListener(() -> sendErr("USER_CANCELED", null));
-        });
-
-        return true;
+        } catch (Exception e) {
+            sendErr("START_SCAN_ERROR", e);
+        }
     }
 
     private void sendErr(String code, Exception e) {
@@ -93,11 +103,11 @@ public class MLKitBarcodeScanner extends CordovaPlugin {
             if (e != null) Log.w(TAG, code, e);
             JSONArray err = new JSONArray();
             err.put(code);
-            err.put(""); // format
-            err.put(""); // type
+            err.put("");
+            err.put("");
             PluginResult fail = new PluginResult(PluginResult.Status.ERROR, err);
             fail.setKeepCallback(false);
-            callback.sendPluginResult(fail);
+            if (callback != null) callback.sendPluginResult(fail);
         } catch (Exception ex) {
             Log.e(TAG, "sendErr failed", ex);
         }
