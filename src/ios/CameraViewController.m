@@ -101,66 +101,40 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
     MLKVisionImage *visionImage = [[MLKVisionImage alloc] initWithBuffer:sampleBuffer];
     visionImage.orientation = [self imageOrientationForDevice];
 
-    // Process
-    __weak typeof(self) weakSelf = self;
-    [self.barcodeDetector processImage:visionImage completion:^(NSArray<MLKBarcode *> * _Nullable barcodes, NSError * _Nullable error) {
-        __strong typeof(self) self = weakSelf;
-        self.processingFrame = NO;
-        if (error || barcodes.count == 0) return;
+// Process
+__weak CameraViewController *weakSelf = self;
+[self.barcodeDetector processImage:visionImage
+                         completion:^(NSArray<MLKBarcode *> * _Nullable barcodes,
+                                      NSError * _Nullable error) {
+    __strong CameraViewController *self = weakSelf;
+    if (!self) return;
 
-        // Compute ROI in image coords to only accept barcodes inside the visible box.
-        // We avoid cropping buffers (which caused crashes). Instead we filter results.
-        CGSize imageSize = [self imageSizeForSampleBuffer:sampleBuffer orientation:visionImage.orientation];
-        CGRect roiImageRect = [self roiImageSpaceFromNormalized:self.normalizedScanRect imageSize:imageSize];
-
+    if (error != nil) return;
+    if (barcodes != nil) {
         for (MLKBarcode *barcode in barcodes) {
-            if (CGRectIsEmpty(barcode.frame)) continue;
+            NSString *value = barcode.rawValue;
+            if (!value) continue;
 
-            // Only accept if the barcode's center lies inside the ROI derived from the box
-            CGPoint center = CGPointMake(CGRectGetMidX(barcode.frame), CGRectGetMidY(barcode.frame));
-            if (!CGRectContainsPoint(roiImageRect, center)) {
-                continue;
-            }
-
-            NSString *value = [barcode.rawValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            if (!value.length) continue;
-
-            // Normalize + regex filter (adjust the pattern if needed)
-            value = value.uppercaseString;
-            NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"^RF[0-9]{5,6}$" options:0 error:nil];
-            if ([regex numberOfMatchesInString:value options:0 range:NSMakeRange(0, value.length)] == 0) {
-                continue;
-            }
-
-            // Stability (majority vote over recent frames)
             [self.recentDetections addObject:value];
-            if (self.recentDetections.count > 10) {
+            if (self.recentDetections.count > self.requiredStableCount) {
                 [self.recentDetections removeObjectAtIndex:0];
             }
 
-            NSMutableDictionary<NSString *, NSNumber *> *freq = [NSMutableDictionary dictionary];
+            NSInteger count = 0;
             for (NSString *v in self.recentDetections) {
-                freq[v] = @([freq[v] intValue] + 1);
+                if ([v isEqualToString:value]) count++;
             }
 
-            __block NSString *best = nil;
-            __block NSInteger maxCount = 0;
-            [freq enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSNumber *obj, BOOL *stop) {
-                NSInteger c = obj.integerValue;
-                if (c > maxCount) { maxCount = c; best = key; }
-            }];
-
-            if (maxCount >= self.requiredStableCount && [value isEqualToString:best]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    if (self.session.isRunning) {
-                        [self.session stopRunning];
-                    }
-                    [self->delegate sendResult:barcode];
-                });
-                return;
+            if (count >= self.requiredStableCount) {
+                [self cleanupCaptureSession];
+                [self->_session stopRunning];
+                [self->delegate sendResult:barcode];
+                break;
             }
         }
-    }];
+    }
+}];
+
 }
 
 #pragma mark - Image / ROI helpers
