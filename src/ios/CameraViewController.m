@@ -14,11 +14,13 @@
 
 @property(nonatomic, strong) NSMutableArray<NSString *> *recentDetections;
 @property(nonatomic, assign) NSInteger requiredStableCount;
-
 @property(nonatomic, assign) BOOL processingFrame;
 
 @property(nonatomic, strong) UIView *scanBox;
 @property(nonatomic, strong) UIView *scanLine;
+
+// Normalized crop region (0–1 coordinates)
+@property(nonatomic, assign) CGRect normalizedScanRect;
 @end
 
 @implementation CameraViewController
@@ -76,10 +78,33 @@
 #pragma mark - Video Output Delegate
 - (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection {
 
-    if (self.processingFrame) return; // prevent overlap
+    if (self.processingFrame) return;
     self.processingFrame = YES;
 
-    MLKVisionImage *visionImage = [[MLKVisionImage alloc] initWithBuffer:sampleBuffer];
+    // Get pixel buffer and crop to ROI
+    CVImageBufferRef buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+    if (!buffer) { self.processingFrame = NO; return; }
+
+    CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+    size_t width = CVPixelBufferGetWidth(buffer);
+    size_t height = CVPixelBufferGetHeight(buffer);
+
+    // Translate normalized rect to pixel coordinates
+    CGRect roi = CGRectMake(self.normalizedScanRect.origin.x * width,
+                            self.normalizedScanRect.origin.y * height,
+                            self.normalizedScanRect.size.width * width,
+                            self.normalizedScanRect.size.height * height);
+
+    // Clamp ROI
+    roi.origin.x = MAX(0, MIN(width - roi.size.width, roi.origin.x));
+    roi.origin.y = MAX(0, MIN(height - roi.size.height, roi.origin.y));
+
+    CIImage *ciImage = [CIImage imageWithCVPixelBuffer:buffer];
+    CIImage *cropped = [ciImage imageByCroppingToRect:roi];
+
+    CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+
+    MLKVisionImage *visionImage = [[MLKVisionImage alloc] initWithImage:[self uiImageFromCIImage:cropped]];
     visionImage.orientation = [self imageOrientationForDevice];
 
     [self.barcodeDetector processImage:visionImage completion:^(NSArray<MLKBarcode *> *barcodes, NSError *error) {
@@ -88,11 +113,10 @@
         if (error || barcodes.count == 0) return;
 
         for (MLKBarcode *barcode in barcodes) {
-            NSString *value = [barcode.rawValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            NSString *value = [[barcode.rawValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
             if (!value.length) continue;
 
-            // Normalize and filter
-            value = [value uppercaseString];
+            // Regex filter example (adjust as needed)
             NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"^RF[0-9]{5,6}$" options:0 error:nil];
             if ([regex numberOfMatchesInString:value options:0 range:NSMakeRange(0, value.length)] == 0) continue;
 
@@ -102,11 +126,8 @@
             NSMutableDictionary *freq = [NSMutableDictionary dictionary];
             for (NSString *v in self.recentDetections) freq[v] = @([freq[v] intValue] + 1);
 
-            NSString *best = nil;
-            NSInteger max = 0;
-            for (NSString *k in freq) {
-                if ([freq[k] intValue] > max) { best = k; max = [freq[k] intValue]; }
-            }
+            NSString *best = nil; NSInteger max = 0;
+            for (NSString *k in freq) if ([freq[k] intValue] > max) { best = k; max = [freq[k] intValue]; }
 
             if (max >= self.requiredStableCount && [value isEqualToString:best]) {
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -121,8 +142,8 @@
 
 #pragma mark - Orientation
 - (UIImageOrientation)imageOrientationForDevice {
-    UIDeviceOrientation deviceOrientation = UIDevice.currentDevice.orientation;
-    switch (deviceOrientation) {
+    UIDeviceOrientation o = UIDevice.currentDevice.orientation;
+    switch (o) {
         case UIDeviceOrientationPortraitUpsideDown: return UIImageOrientationLeft;
         case UIDeviceOrientationLandscapeLeft: return UIImageOrientationUp;
         case UIDeviceOrientationLandscapeRight: return UIImageOrientationDown;
@@ -146,12 +167,16 @@
     self.previewLayer.frame = self.view.bounds;
     [self.view.layer addSublayer:self.previewLayer];
 
-    CGRect screenRect = UIScreen.mainScreen.bounds;
-    CGFloat w = screenRect.size.width * _scanAreaSize;
+    CGRect screen = UIScreen.mainScreen.bounds;
+    CGFloat w = screen.size.width * _scanAreaSize;
     CGFloat h = w;
+    CGFloat x = (screen.size.width - w) / 2;
+    CGFloat y = (screen.size.height - h) / 2;
 
-    self.scanBox = [[UIView alloc] initWithFrame:CGRectMake(screenRect.size.width/2 - w/2,
-                                                            screenRect.size.height/2 - h/2, w, h)];
+    self.normalizedScanRect = CGRectMake(x / screen.size.width, y / screen.size.height,
+                                         w / screen.size.width, h / screen.size.height);
+
+    self.scanBox = [[UIView alloc] initWithFrame:CGRectMake(x, y, w, h)];
     self.scanBox.layer.borderColor = [UIColor whiteColor].CGColor;
     self.scanBox.layer.borderWidth = 3;
     self.scanBox.layer.cornerRadius = 12;
@@ -162,13 +187,13 @@
     [self.scanBox addSubview:self.scanLine];
 
     CGFloat buttonSize = 45.0;
-    UIButton *cancel = [[UIButton alloc] initWithFrame:CGRectMake(20, screenRect.size.height-60, buttonSize, buttonSize)];
+    UIButton *cancel = [[UIButton alloc] initWithFrame:CGRectMake(20, screen.size.height-60, buttonSize, buttonSize)];
     [cancel addTarget:self action:@selector(closeView:) forControlEvents:UIControlEventTouchUpInside];
     cancel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.4];
     cancel.layer.cornerRadius = buttonSize/2;
     [self.view addSubview:cancel];
 
-    self.torchButton = [[UIButton alloc] initWithFrame:CGRectMake(screenRect.size.width-65, screenRect.size.height-60, buttonSize, buttonSize)];
+    self.torchButton = [[UIButton alloc] initWithFrame:CGRectMake(screen.size.width-65, screen.size.height-60, buttonSize, buttonSize)];
     [self.torchButton addTarget:self action:@selector(toggleFlashlight:) forControlEvents:UIControlEventTouchUpInside];
     self.torchButton.backgroundColor = [UIColor colorWithWhite:1 alpha:0.4];
     self.torchButton.layer.cornerRadius = buttonSize/2;
@@ -195,6 +220,14 @@
 }
 
 #pragma mark - Animation / Helpers
+- (UIImage *)uiImageFromCIImage:(CIImage *)ci {
+    CIContext *ctx = [CIContext contextWithOptions:nil];
+    CGImageRef cg = [ctx createCGImage:ci fromRect:ci.extent];
+    UIImage *img = [UIImage imageWithCGImage:cg];
+    CGImageRelease(cg);
+    return img;
+}
+
 - (void)startScanLineAnimation {
     if (!self.scanLine) return;
     [UIView animateWithDuration:2.0 delay:0 options:UIViewAnimationOptionRepeat|UIViewAnimationOptionAutoreverse animations:^{
