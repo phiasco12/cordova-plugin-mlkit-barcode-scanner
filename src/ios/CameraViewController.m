@@ -20,7 +20,6 @@
 
 // ✅ Stability buffer
 @property(nonatomic, strong) NSMutableArray<NSString *> *recentDetections;
-@property(nonatomic, assign) NSInteger requiredStableCount;
 
 @property(nonatomic, strong) UIView *scanBox;
 @property(nonatomic, strong) UIView *scanLine;
@@ -40,7 +39,6 @@
     if (self) {
         _videoDataOutputQueue = dispatch_queue_create("VideoDataOutputQueue", DISPATCH_QUEUE_SERIAL);
         _recentDetections = [NSMutableArray array];
-        _requiredStableCount = 3; // ✅ require same value 3 times
     }
     return self;
 }
@@ -145,18 +143,38 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
                 NSString *value = barcode.rawValue;
                 if (!value) continue;
 
-                // ✅ Stability filter
+                // ✅ Normalize
+                value = [[value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
+
+                // ✅ Regex filter: must be RF + 5–6 digits
+                NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"^RF[0-9]{5,6}$" options:0 error:nil];
+                NSUInteger matches = [regex numberOfMatchesInString:value options:0 range:NSMakeRange(0, value.length)];
+                if (matches == 0) continue;
+
+                // ✅ Add to buffer
                 [self.recentDetections addObject:value];
-                if (self.recentDetections.count > self.requiredStableCount) {
+                if (self.recentDetections.count > 10) {
                     [self.recentDetections removeObjectAtIndex:0];
                 }
 
-                NSInteger count = 0;
+                // ✅ Count frequency
+                NSMutableDictionary *freq = [NSMutableDictionary dictionary];
                 for (NSString *v in self.recentDetections) {
-                    if ([v isEqualToString:value]) count++;
+                    freq[v] = @([freq[v] intValue] + 1);
                 }
 
-                if (count >= self.requiredStableCount) {
+                // ✅ Find most frequent value
+                NSString *bestValue = nil;
+                NSInteger maxCount = 0;
+                for (NSString *key in freq) {
+                    if ([freq[key] intValue] > maxCount) {
+                        bestValue = key;
+                        maxCount = [freq[key] intValue];
+                    }
+                }
+
+                // ✅ Only accept if stable enough
+                if (maxCount >= 3 && [value isEqualToString:bestValue]) {
                     [self cleanupCaptureSession];
                     [self->_session stopRunning];
                     [self->delegate sendResult:barcode];
@@ -225,7 +243,7 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
     self.scanLine.backgroundColor = [UIColor colorWithRed:0.9 green:0.1 blue:0.1 alpha:0.8];
     [self.scanBox addSubview:self.scanLine];
 
-    // Cancel + Torch buttons (kept from your original code)
+    // Cancel + Torch buttons
     CGFloat buttonSize = 45.0;
     UIButton *_cancelButton = [[UIButton alloc] init];
     [_cancelButton addTarget:self action:@selector(closeView:) forControlEvents:UIControlEventTouchUpInside];
@@ -290,10 +308,10 @@ didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
     NSError *error;
     if ([device lockForConfiguration:&error]) {
         if ([device isFocusModeSupported:AVCaptureFocusModeContinuousAutoFocus]) {
-            device.focusMode = AVCaptureFocusModeContinuousAutoFocus; // ✅ continuous focus
+            device.focusMode = AVCaptureFocusModeContinuousAutoFocus;
         }
         if ([device isExposureModeSupported:AVCaptureExposureModeContinuousAutoExposure]) {
-            device.exposureMode = AVCaptureExposureModeContinuousAutoExposure; // ✅ continuous exposure
+            device.exposureMode = AVCaptureExposureModeContinuousAutoExposure;
         }
         [device unlockForConfiguration];
     }
